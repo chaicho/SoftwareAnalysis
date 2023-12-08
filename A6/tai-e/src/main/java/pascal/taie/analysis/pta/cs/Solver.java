@@ -154,7 +154,8 @@ class Solver {
                 if (def instanceof Var defVar) {
                     // TODO - finish me
                     Obj newObj = heapModel.getObj(stmt);
-                    CSObj csObj = csManager.getCSObj(context, newObj);
+                    Context heapContext = contextSelector.selectHeapContext(csMethod, newObj);
+                    CSObj csObj = csManager.getCSObj(heapContext, newObj);
                     PointsToSet pts = PointsToSetFactory.make(csObj);
                     workList.addEntry(csManager.getCSVar(context,defVar), pts);
                 }
