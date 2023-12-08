@@ -30,9 +30,7 @@ import pascal.taie.language.classes.JClass;
 import pascal.taie.language.classes.JMethod;
 import pascal.taie.language.classes.Subsignature;
 
-import java.util.ArrayDeque;
-import java.util.Queue;
-import java.util.Set;
+import java.util.*;
 
 /**
  * Implementation of the CHA algorithm.
@@ -46,11 +44,48 @@ class CHABuilder implements CGBuilder<Invoke, JMethod> {
         hierarchy = World.get().getClassHierarchy();
         return buildCallGraph(World.get().getMainMethod());
     }
-
+    public Collection<JClass> getAllSubClasses(JClass clazz) {
+        Set<JClass> subClasses = new HashSet<>();
+        if (!clazz.isInterface()) {
+            subClasses.add(clazz);
+        }
+        if (clazz.isInterface()) {
+            for (JClass subClass : hierarchy.getDirectSubinterfacesOf(clazz)) {
+                subClasses.addAll(getAllSubClasses(subClass));
+            }
+            for (JClass subClass : hierarchy.getDirectImplementorsOf(clazz)) {
+                subClasses.addAll(getAllSubClasses(subClass));
+            }
+        }
+        else {
+            for (JClass subClass : hierarchy.getDirectSubclassesOf(clazz)) {
+                subClasses.addAll(getAllSubClasses(subClass));
+            }
+        }
+        return subClasses;
+    }
     private CallGraph<Invoke, JMethod> buildCallGraph(JMethod entry) {
         DefaultCallGraph callGraph = new DefaultCallGraph();
         callGraph.addEntryMethod(entry);
-        // TODO - finish me
+        Queue<JMethod> worklist = new LinkedList<>();
+        Set<JMethod> reachableMethods = new HashSet<>();
+
+        while (!worklist.isEmpty()) {
+            JMethod method = worklist.poll();
+            if (callGraph.contains(method)) {
+                continue;
+            }
+            callGraph.addReachableMethod(method);
+            for (Invoke invoke : callGraph.getCallSitesIn(method)) {
+                Set<JMethod> targets = resolve(invoke);
+                for (JMethod target : targets) {
+                    Edge<Invoke, JMethod> edge = new Edge<>(CallGraphs.getCallKind(invoke), invoke, target);
+                    callGraph.addEdge(edge);
+                    worklist.add(target);
+                }
+            }
+        }
+
         return callGraph;
     }
 
@@ -58,8 +93,35 @@ class CHABuilder implements CGBuilder<Invoke, JMethod> {
      * Resolves call targets (callees) of a call site via CHA.
      */
     private Set<JMethod> resolve(Invoke callSite) {
-        // TODO - finish me
-        return null;
+        Set<JMethod> targets = new HashSet<>();
+        MethodRef caller = callSite.getMethodRef();
+        JClass curClass = caller.getDeclaringClass();
+        Subsignature curSubsignature = caller.getSubsignature();
+        if (callSite.isStatic()) {
+            JMethod curMethod = curClass.getDeclaredMethod(curSubsignature);
+            if (curMethod == null) {
+                throw new RuntimeException("Method not found: " + curClass.getName() + "." + curSubsignature);
+            }
+            targets.add(curMethod);
+        }
+        if (callSite.isSpecial()) {
+            JMethod targetMethod = dispatch(curClass, curSubsignature);
+            if (targetMethod != null) {
+                targets.add(targetMethod);
+            }
+        }
+        if (callSite.isVirtual()) {
+            Set<JClass> toVisit = new HashSet<>();
+            toVisit.add(curClass);
+            toVisit.addAll(hierarchy.getDirectSubclassesOf(curClass));
+            for (JClass clazz : toVisit) {
+                JMethod method = dispatch(clazz, curSubsignature);
+                if (method != null) {
+                    targets.add(method);
+                }
+            }
+        }
+        return targets;
     }
 
     /**
@@ -69,7 +131,14 @@ class CHABuilder implements CGBuilder<Invoke, JMethod> {
      * can be found.
      */
     private JMethod dispatch(JClass jclass, Subsignature subsignature) {
-        // TODO - finish me
-        return null;
+        if (jclass == null) {
+            return null;
+        }
+        for (JMethod method : jclass.getDeclaredMethods()) {
+            if (!method.isAbstract() && subsignature.equals(method.getSubsignature())) {
+                return method;
+            }
+        }
+        return dispatch(jclass.getSuperClass(), subsignature);
     }
 }
