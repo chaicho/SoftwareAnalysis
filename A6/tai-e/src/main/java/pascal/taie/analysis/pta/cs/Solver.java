@@ -175,11 +175,13 @@ class Solver {
                 Var def = stmt.getLValue();
                 JMethod callee = resolveCallee(null, stmt);
                 Context newContext = contextSelector.selectContext(csManager.getCSCallSite(context, stmt), callee);
+                CSCallSite csStmt = csManager.getCSCallSite(newContext, stmt);
+                CSMethod csCalle = csManager.getCSMethod(newContext,callee);
                 if (callGraph.hasEdge(csMethod, csManager.getCSMethod(newContext, callee))) {
                     return null;
                 }
                 addReachable(csManager.getCSMethod(newContext, callee));
-                callGraph.addEdge(new Edge(CallKind.STATIC, stmt, callee));
+                callGraph.addEdge(new Edge(CallKind.STATIC, csStmt, csCalle));
                 if (def != null) {
                     for (Var retVar : callee.getIR().getReturnVars()) {
                         if (retVar != null) {
@@ -326,16 +328,16 @@ class Solver {
             Context curContext = recv.getContext();
             JMethod callee = resolveCallee(recvObj, callSite);
             CSCallSite csCallSite = csManager.getCSCallSite(curContext, callSite);
+            Context newContext = contextSelector.selectContext(csCallSite, recvObj, callee);
             if (callee == null) {
                 continue;
             }
-            CSMethod csCaller = csManager.getCSMethod(curContext, callSite.getContainer());
-            CSMethod csCallee = csManager.getCSMethod(curContext, callee);
-            Context newContext = contextSelector.selectContext(csCallSite, recvObj, callee);
+            CSCallSite csCaller = csManager.getCSCallSite(curContext, callSite);
+            CSMethod csCallee = csManager.getCSMethod(newContext, callee);
             CSVar calleeVar = csManager.getCSVar(newContext, callee.getIR().getThis());
             workList.addEntry(calleeVar, PointsToSetFactory.make(recvObj));
-            if (!callGraph.hasEdge(csCaller, csCallee)) {
-                Edge edge = new Edge(CallGraphs.getCallKind(callSite), callSite, callee);
+            if (!callGraph.getCalleesOf(csCaller).contains(csCallee)) {
+                Edge edge = new Edge(CallGraphs.getCallKind(callSite), csCallSite, csCallee);
                 callGraph.addEdge(edge);
                 addReachable(csCallee);
                 if (callSite.getLValue() != null) {

@@ -43,19 +43,30 @@ public class _2TypeSelector implements ContextSelector {
 
     @Override
     public Context selectContext(CSCallSite callSite, JMethod callee) {
-        // TODO - finish me
-        return null;
+        if (callSite.getContext().getLength() == 0){
+            return getEmptyContext();
+        }
+        else {
+            return ListContext.make(callSite.getContext());
+        }
     }
 
     @Override
     public Context selectContext(CSCallSite callSite, CSObj recv, JMethod callee) {
-        // TODO - finish me
-        return null;
+        Context prevContext = recv.getContext();
+        if (prevContext.getLength() > 0) {
+            return ListContext.make(prevContext.getElementAt(prevContext.getLength() - 1), recv.getObject().getContainerType());
+        }
+        else {
+            return ListContext.make(recv.getObject().getContainerType());
+        }
     }
 
     @Override
     public Context selectHeapContext(CSMethod method, Obj obj) {
-        // TODO - finish me
-        return null;
+        if (method.getContext().getLength() == 0) {
+            return getEmptyContext();
+        }
+        return ListContext.make(method.getContext().getElementAt(method.getContext().getLength() - 1));
     }
 }
