@@ -1,4 +1,4 @@
-class Interprocedural2 {
+class Inter {
     public static void main(String[] args) {
         X x = new X();
         x.setF(123);
@@ -12,7 +12,7 @@ class Interprocedural2 {
         int f;
 
         int getF() {
-            return f;
+            return 123;
         }
 
         void setF(int f) {
