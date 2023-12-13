@@ -75,6 +75,25 @@ class InterSolver<Method, Node, Fact> {
     }
 
     private void doSolve() {
+//        boolean changesToOut = true;
+//        while (changesToOut) {
+//            changesToOut = false;
+//            for (Node node : icfg.getNodes()) {
+////                if (icfg.e().equals(node)) {
+////                    continue;
+////                }
+//                Fact outFacts = result.getOutFact(node);
+//                Fact inFacts = result.getInFact(node);
+//                for (ICFGEdge<Node> edge : icfg.getInEdgesOf(node)) {
+//                    Fact predNodeOut = result.getOutFact(edge.getSource());
+//                    Fact transfered = analysis.transferEdge(edge, predNodeOut);
+//                    analysis.meetInto(transfered, inFacts);
+//                }
+//                if (!changesToOut) {
+//                    changesToOut |= analysis.transferNode(node,inFacts,outFacts);
+//                }
+//            }
+//        }
         LinkedList<Node> workList = new LinkedList<>();
         workList.addAll(icfg.getNodes());
         while (!workList.isEmpty()) {
