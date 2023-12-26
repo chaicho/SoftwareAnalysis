@@ -25,11 +25,18 @@ package pascal.taie.analysis.pta.plugin.taint;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import pascal.taie.World;
+import pascal.taie.analysis.graph.callgraph.CallGraph;
 import pascal.taie.analysis.pta.PointerAnalysisResult;
+import pascal.taie.analysis.pta.core.cs.CSCallGraph;
 import pascal.taie.analysis.pta.core.cs.context.Context;
-import pascal.taie.analysis.pta.core.cs.element.CSManager;
+import pascal.taie.analysis.pta.core.cs.element.*;
+import pascal.taie.analysis.pta.core.heap.Obj;
 import pascal.taie.analysis.pta.cs.Solver;
+import pascal.taie.ir.exp.Var;
+import pascal.taie.ir.stmt.Invoke;
+import pascal.taie.language.classes.JMethod;
 
+import java.lang.invoke.CallSite;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -58,6 +65,8 @@ public class TaintAnalysiss {
                 World.get().getClassHierarchy(),
                 World.get().getTypeSystem());
         logger.info(config);
+
+
     }
 
     // TODO - finish me
@@ -66,12 +75,54 @@ public class TaintAnalysiss {
         Set<TaintFlow> taintFlows = collectTaintFlows();
         solver.getResult().storeResult(getClass().getName(), taintFlows);
     }
+    public boolean isSink(CSMethod method) {
+        for (Sink sink : config.getSinks()) {
+            if (sink.method().equals(method.getMethod())) {
+                return true;
+            }
+        }
+        return false;
+    }
+    public Set<Integer> getSensitiveIndices(CSMethod method) {
+        Set<Integer> sensitiveIndices = new TreeSet<>();
+        for (Sink sink : config.getSinks()) {
+            if (sink.method().equals(method.getMethod())) {
+                sensitiveIndices.add(sink.index());
+            }
+        }
+        return sensitiveIndices;
+    }
 
     private Set<TaintFlow> collectTaintFlows() {
         Set<TaintFlow> taintFlows = new TreeSet<>();
         PointerAnalysisResult result = solver.getResult();
         // TODO - finish me
         // You could query pointer analysis results you need via variable result.
+        CallGraph<CSCallSite, CSMethod> callGraph = result.getCSCallGraph();
+        for (CSMethod method : callGraph.getNodes()) {
+            if (isSink(method)) {
+                Set<CSCallSite> callSites = callGraph.getCallersOf(method);
+                for (CSCallSite callSite : callSites) {
+                    Context context = callSite.getContext();
+                    JMethod caller = callSite.getCallSite().getContainer();
+                    Set<Integer> sensitiveIndices = getSensitiveIndices(method);
+                    for (int i : sensitiveIndices) {
+                        Invoke invoke = callSite.getCallSite();
+                        Var argument = invoke.getInvokeExp().getArg(i);
+                        Set<CSObj> pts = result.getPointsToSet(csManager.getCSVar(context,argument));
+                        for (CSObj csObj : pts) {
+                            Obj obj = csObj.getObject();
+                            if (manager.isTaint(obj)) {
+                                    Invoke sourceCall = manager.getSourceCall(obj);
+                                    taintFlows.add(new TaintFlow(sourceCall, invoke, i));
+                            }
+                        }
+                    }
+                }
+            }
+        }
         return taintFlows;
     }
+
+    public boolean
 }

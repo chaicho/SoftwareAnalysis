@@ -22,11 +22,11 @@
 
 package pascal.taie.analysis.dataflow.inter;
 
+import heros.fieldsens.AccessPathHandler;
 import pascal.taie.World;
 import pascal.taie.analysis.dataflow.analysis.constprop.CPFact;
 import pascal.taie.analysis.dataflow.analysis.constprop.ConstantPropagation;
 import pascal.taie.analysis.dataflow.analysis.constprop.Value;
-import pascal.taie.analysis.graph.cfg.CFG;
 import pascal.taie.analysis.graph.cfg.CFGBuilder;
 import pascal.taie.analysis.graph.icfg.CallEdge;
 import pascal.taie.analysis.graph.icfg.CallToReturnEdge;
@@ -37,14 +37,12 @@ import pascal.taie.analysis.pta.core.heap.Obj;
 import pascal.taie.config.AnalysisConfig;
 import pascal.taie.ir.IR;
 import pascal.taie.ir.exp.*;
-import pascal.taie.ir.stmt.Invoke;
-import pascal.taie.ir.stmt.LoadField;
-import pascal.taie.ir.stmt.Stmt;
-import pascal.taie.ir.stmt.StoreField;
+import pascal.taie.ir.stmt.*;
 import pascal.taie.language.classes.JField;
 import pascal.taie.language.classes.JMethod;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Implementation of interprocedural constant propagation for int values.
@@ -56,13 +54,13 @@ public class InterConstantPropagation extends
 
     private final ConstantPropagation cp;
 
-
+//    LinkedList<Node> workList = new LinkedList<>();
     private PointerAnalysisResult pta;
     private HashMap<Var, Set<Var>> aliasMap = new HashMap<>();
-
     private HashMap<Var, Set<Obj>> pointsToMap = new HashMap<>();
-
     private HashMap<FieldAccess, Value> fieldAccessValueHashMap = new HashMap<>();
+//    private HashMap<FieldAccess, Set<LoadField>>
+
     public InterConstantPropagation(AnalysisConfig config) {
         super(config);
         cp = new ConstantPropagation(new AnalysisConfig(ConstantPropagation.ID));
@@ -85,13 +83,10 @@ public class InterConstantPropagation extends
                 Set<Obj> otherPointsToSet = pointsToMap.get(otherVar);
                 boolean intersect = !Collections.disjoint(pointsToSet, otherPointsToSet);
                 if (intersect) {
-                    Set<Var> aliasSet = aliasMap.getOrDefault(var, new HashSet<>());
-                    aliasSet.add(otherVar);
-                    aliasMap.put(var, aliasSet);
+                    aliasMap.computeIfAbsent(var, k -> new HashSet<>()).add(otherVar);
                 }
             }
         }
-        FieldAccess a = null;
 //        pta.getPointsToSet(a.getFieldRef().resolve())
 //        pta.getInstanceFields().forEach(field -> {
 //            if (field.getName().equals("a")) {
@@ -136,6 +131,9 @@ public class InterConstantPropagation extends
 
     public boolean isAliasVar(Var var1, Var var2) {
         Set<Var> aliasVars = getAlias(var1);
+        if (aliasVars == null) {
+            return false;
+        }
         return aliasVars.contains(var2);
     }
     public boolean isAliasFieldAccess(FieldAccess fieldAccess1, FieldAccess fieldAccess2) {
@@ -149,98 +147,116 @@ public class InterConstantPropagation extends
         }
         return false;
     }
-    public Set<FieldAccess> getAliasFieldAccesses(FieldAccess fieldAccess) {
-        Set<FieldAccess> aliasFields = new HashSet<>();
-        for (FieldAccess fieldAccess1 : fieldAccessValueHashMap.keySet()) {
-            if (isAliasFieldAccess(fieldAccess, fieldAccess1)) {
-                aliasFields.add(fieldAccess1);
-            }
+    public boolean isAliasArrayAccess(ArrayAccess arrayAccess1, ArrayAccess arrayAccess2, Value index1, Value index2) {
+        Var base1 = arrayAccess1.getBase();
+        Var base2 = arrayAccess2.getBase();
+        if (!isAliasVar(base1, base2)) {
+            return false;
         }
-        return aliasFields;
+        if (index1.isUndef() || index2.isUndef()) {
+            return false;
+        }
+        if (index1.isNAC() || index2.isNAC()) {
+            return true;
+        }
+        if (index1.isConstant() && index2.isConstant()) {
+            return index1.equals(index2);
+        }
+//        assert false;
+        return false;
     }
-    public void storeFieldAccessValue(StoreField storeField, Value value) {
+
+    public Set<LoadField> getAliasFieldLoads(FieldAccess fieldAccess) {
+        return icfg.getNodes()
+                .stream()
+                .filter(node -> node instanceof LoadField)
+                .map(node -> (LoadField) node)
+                .filter(node -> isAliasFieldAccess(node.getFieldAccess(), fieldAccess))
+                .collect(Collectors.toSet());
+    }
+    public Set<StoreField> getAliasStoreFields(FieldAccess fieldAccess) {
+        return icfg.getNodes()
+                .stream()
+                .filter(node -> node instanceof StoreField)
+                .map(node -> (StoreField) node)
+                .filter(node -> isAliasFieldAccess(node.getFieldAccess(), fieldAccess))
+                .collect(Collectors.toSet());
+    }
+    public Set<LoadArray> getAliasLoadArrays(StoreArray storeArray) {
+        ArrayAccess arrayAccess = storeArray.getArrayAccess();
+        Value indexVar = solver.getResult().getInFact(storeArray).get(arrayAccess.getIndex());
+        return icfg.getNodes()
+                .stream()
+                .filter(node -> node instanceof LoadArray)
+                .map(node -> (LoadArray) node)
+                .filter(node -> isAliasArrayAccess(node.getArrayAccess(), arrayAccess, solver.getResult().getInFact(node).get(node.getArrayAccess().getIndex()), indexVar))
+                .collect(Collectors.toSet());
+    }
+
+    public Set<StoreArray> getAliasStoreArrays(LoadArray loadArray) {
+        ArrayAccess arrayAccess = loadArray.getArrayAccess();
+        Value indexVar = solver.getResult().getInFact(loadArray).get(arrayAccess.getIndex());
+        return icfg.getNodes()
+                .stream()
+                .filter(node -> node instanceof StoreArray)
+                .map(node -> (StoreArray) node)
+                .filter(node -> isAliasArrayAccess(node.getArrayAccess(), arrayAccess, solver.getResult().getInFact(node).get(node.getArrayAccess().getIndex()),indexVar))
+                .collect(Collectors.toSet());
+    }
+
+    public void handleStoreField(StoreField storeField) {
         FieldAccess fieldAccess = storeField.getFieldAccess();
-        Value prevStoredValue = fieldAccessValueHashMap.get(fieldAccess);
-        if (prevStoredValue == null) {
-            prevStoredValue = Value.getUndef();
-        }
-        Value newValue = cp.meetValue(prevStoredValue, value);
-        if (fieldAccess instanceof InstanceFieldAccess fieldAccess1) {
-            Set<FieldAccess> aliasFields = getAliasFieldAccesses(fieldAccess1);
-            Value newValueForAll = newValue;
-            for (FieldAccess aliasField : aliasFields) {
-                Value prevStoredValueForAlias = fieldAccessValueHashMap.get(aliasField);
-                if (prevStoredValueForAlias == null) {
-                    prevStoredValueForAlias = Value.getUndef();
-                }
-                newValueForAll = cp.meetValue(prevStoredValueForAlias, newValueForAll);
-            }
-            for (FieldAccess aliasField : aliasFields) {
-                fieldAccessValueHashMap.put(aliasField, newValueForAll);
-            }
-            fieldAccessValueHashMap.put(fieldAccess, newValueForAll);
-        }
-        else if (fieldAccess instanceof StaticFieldAccess fieldAccess1) {
-            fieldAccessValueHashMap.put(fieldAccess, newValue);
-        }
+        Set<LoadField> aliasLoads = getAliasFieldLoads(fieldAccess);
+        solver.getWorkList().addAll(aliasLoads);
     }
 
-    public Value loadFieldAccessValue(FieldAccess fieldAccess) {
-        Set<FieldAccess> aliasFields = getAliasFieldAccesses(fieldAccess);
-        Value value = Value.getUndef();
-        for (FieldAccess aliasField : aliasFields) {
-            Value prevStoredValueForAlias = fieldAccessValueHashMap.get(aliasField);
-            if (prevStoredValueForAlias == null) {
-                prevStoredValueForAlias = Value.getUndef();
-            }
-            value = cp.meetValue(prevStoredValueForAlias, value);
+    public Value handleLoadField(LoadField loadField) {
+        FieldAccess fieldAccess = loadField.getFieldAccess();
+        Set<StoreField> aliasStores = getAliasStoreFields(fieldAccess);
+        Value finalValue = Value.getUndef();
+        for (StoreField storeField : aliasStores) {
+            Var rhtVar = storeField.getRValue();
+            Value storedValue = solver.getResult().getInFact(storeField).get(rhtVar);
+            finalValue = cp.meetValue(finalValue, storedValue);
         }
-        return value;
-
-//        if (fieldAccess instanceof InstanceFieldAccess fieldAccess1) {
-//            Var base = fieldAccess1.getBase();
-//            Set<Var> aliasVars = getAlias(base);
-//            Value newValue = fieldAccessValueHashMap.get(fieldAccess);
-//            if (newValue != null) {
-//                for (Var aliasVar : aliasVars) {
-//                    Value oldValue = fieldAccessValueHashMap.get(fieldAccess);
-//                    if (oldValue == null || oldValue != newValue) {
-//                        fieldAccessValueHashMap.put(fieldAccess, cp.meetValue(newValue, oldValue));
-//                    }
-//                }
-//            }
-//        }
-//        else if (fieldAccess instanceof StaticFieldAccess fieldAccess1) {
-//            Value value = fieldAccessValueHashMap.get(fieldAccess);
-////            if (value != null) {
-////                cp.updateValue(loadedVar, value);
-////            }
-//        }
+        return finalValue;
     }
-
+    public Value handleLoadArray(LoadArray loadArray) {
+        Set<StoreArray> aliasStores = getAliasStoreArrays(loadArray);
+        Value finalValue = Value.getUndef();
+        for (StoreArray storeArray : aliasStores) {
+            Var rhtVar = storeArray.getRValue();
+            Value storedValue = solver.getResult().getInFact(storeArray).get(rhtVar);
+            finalValue = cp.meetValue(finalValue, storedValue);
+        }
+        return finalValue;
+    }
+    public void handleStoreArray(StoreArray storeArray) {
+        ArrayAccess arrayAccess = storeArray.getArrayAccess();
+        Set<LoadArray> aliasLoads = getAliasLoadArrays(storeArray);
+        solver.getWorkList().addAll(aliasLoads);
+    }
     @Override
     protected boolean transferNonCallNode(Stmt stmt, CPFact in, CPFact out) {
         if (stmt instanceof StoreField storeField) {
-            Value value = in.get(storeField.getRValue());
-            storeFieldAccessValue(storeField, value);
-            Boolean changed = false;
-            for (Var v : in.keySet()) {
-                changed |= out.update(v, in.get(v));
-            }
-            return changed;
+            handleStoreField(storeField);
+            return out.copyFrom(in);
         }
         else if (stmt instanceof LoadField loadField) {
-            FieldAccess fieldAccess = loadField.getFieldAccess();
-            JField field = fieldAccess.getFieldRef().resolve();
-            Var loadedVar = loadField.getLValue();
-            Value newValue = loadFieldAccessValue(fieldAccess);
-            Value oldValue = in.get(loadedVar);
-            Boolean changed = false;
-            for (Var v : in.keySet()) {
-                changed |= out.update(v, in.get(v));
-            }
-            changed = out.update(loadedVar, cp.meetValue(newValue, oldValue));
-            return changed;
+            Value newValue = handleLoadField(loadField);
+            CPFact newIn = in.copy();
+            newIn.update(loadField.getLValue(), newValue);
+            return out.copyFrom(newIn);
+        }
+        else if (stmt instanceof StoreArray storeArray) {
+            handleStoreArray(storeArray);
+            return out.copyFrom(in);
+        }
+        else if (stmt instanceof LoadArray loadArray) {
+            Value newValue = handleLoadArray(loadArray);
+            CPFact newIn = in.copy();
+            newIn.update(loadArray.getLValue(), newValue);
+            return out.copyFrom(newIn);
         }
         else {
             return cp.transferNode(stmt, in, out);

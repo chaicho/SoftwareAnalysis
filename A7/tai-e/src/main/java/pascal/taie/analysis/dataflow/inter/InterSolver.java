@@ -22,11 +22,13 @@
 
 package pascal.taie.analysis.dataflow.inter;
 
+import pascal.taie.analysis.dataflow.analysis.constprop.Value;
 import pascal.taie.analysis.dataflow.fact.DataflowResult;
 import pascal.taie.analysis.graph.icfg.ICFG;
 import pascal.taie.analysis.graph.icfg.ICFGEdge;
 import pascal.taie.util.collection.SetQueue;
 
+import javax.xml.crypto.Data;
 import java.util.LinkedList;
 import java.util.Queue;
 import java.util.Set;
@@ -45,7 +47,7 @@ class InterSolver<Method, Node, Fact> {
 
     private DataflowResult<Node, Fact> result;
 
-    private Queue<Node> workList;
+    private LinkedList<Node> workList = new LinkedList<>();
 
     InterSolver(InterDataflowAnalysis<Node, Fact> analysis,
                 ICFG<Method, Node> icfg) {
@@ -75,26 +77,7 @@ class InterSolver<Method, Node, Fact> {
     }
 
     private void doSolve() {
-//        boolean changesToOut = true;
-//        while (changesToOut) {
-//            changesToOut = false;
-//            for (Node node : icfg.getNodes()) {
-////                if (icfg.e().equals(node)) {
-////                    continue;
-////                }
-//                Fact outFacts = result.getOutFact(node);
-//                Fact inFacts = result.getInFact(node);
-//                for (ICFGEdge<Node> edge : icfg.getInEdgesOf(node)) {
-//                    Fact predNodeOut = result.getOutFact(edge.getSource());
-//                    Fact transfered = analysis.transferEdge(edge, predNodeOut);
-//                    analysis.meetInto(transfered, inFacts);
-//                }
-//                if (!changesToOut) {
-//                    changesToOut |= analysis.transferNode(node,inFacts,outFacts);
-//                }
-//            }
-//        }
-        LinkedList<Node> workList = new LinkedList<>();
+        workList = new LinkedList<>();
         workList.addAll(icfg.getNodes());
         while (!workList.isEmpty()) {
             Node node = workList.pop();
@@ -111,4 +94,12 @@ class InterSolver<Method, Node, Fact> {
             System.out.println("node: " + node);
         }
     }
+    public DataflowResult<Node, Fact> getResult() {
+        return result;
+    }
+
+    public LinkedList<Node> getWorkList() {
+        return workList;
+    }
+
 }
