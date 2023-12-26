@@ -27,19 +27,18 @@ import org.apache.logging.log4j.Logger;
 import pascal.taie.World;
 import pascal.taie.analysis.graph.callgraph.CallGraph;
 import pascal.taie.analysis.pta.PointerAnalysisResult;
-import pascal.taie.analysis.pta.core.cs.CSCallGraph;
 import pascal.taie.analysis.pta.core.cs.context.Context;
 import pascal.taie.analysis.pta.core.cs.element.*;
 import pascal.taie.analysis.pta.core.heap.Obj;
 import pascal.taie.analysis.pta.cs.Solver;
+import pascal.taie.analysis.pta.pts.PointsToSet;
+import pascal.taie.analysis.pta.pts.PointsToSetFactory;
 import pascal.taie.ir.exp.Var;
 import pascal.taie.ir.stmt.Invoke;
 import pascal.taie.language.classes.JMethod;
 import pascal.taie.language.type.Type;
 
-import java.lang.invoke.CallSite;
 import java.util.HashSet;
-import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -87,7 +86,15 @@ public class TaintAnalysiss {
         }
         return taintTypes;
     }
-    // TODO - finish me
+
+    public Set<Obj> initializeTaintObjs(Invoke callSite, CSMethod callee) {
+        Set<Type> taintTypes = getTaintTypes(callee);
+        Set<Obj> taintObjs = new HashSet<>();
+        for (Type type : taintTypes) {
+            taintObjs.add(manager.makeTaint(callSite, type));
+        }
+        return taintObjs;
+    }
 
     public void onFinish() {
         Set<TaintFlow> taintFlows = collectTaintFlows();
@@ -110,7 +117,60 @@ public class TaintAnalysiss {
         }
         return sensitiveIndices;
     }
+    public Set<Obj> getTaintObjsInPointsToSet(Pointer pointer) {
+        if (pointer == null) {
+            return new HashSet<>();
+        }
+        Set<Obj> taintObjs = new HashSet<>();
+        for (CSObj csObj : pointer.getPointsToSet()) {
+            Obj obj = csObj.getObject();
+            if (manager.isTaint(obj)) {
+                taintObjs.add(obj);
+            }
+        }
+        return taintObjs;
+    }
+    public void handleTaintTransfer(Invoke invoke, CSMethod callee, CSVar recVar, CSVar lftVar) {
+        Context curContext = recVar == null ? emptyContext : recVar.getContext();
+        Set<TaintTransfer> taintTransfers = getTaintTransfers(callee);
+        // Handle taint analysis
+        if (lftVar != null) {
+            Set<Obj> taintObjs = initializeTaintObjs(invoke, callee);
+            for (Obj taintObj : taintObjs) {
+                solver.addToWorkList(lftVar, taintObj);
+            }
+        }
 
+        for (TaintTransfer transfer : taintTransfers) {
+            int from = transfer.from();
+            int to = transfer.to();
+            Pointer fromVar;
+            Pointer toVar;
+            if (from == TaintTransfer.BASE) {
+                fromVar = recVar;
+            }
+            else {
+                fromVar = csManager.getCSVar(curContext, invoke.getInvokeExp().getArg(from));
+            }
+            if (to == TaintTransfer.RESULT) {
+                toVar = csManager.getCSVar(curContext, invoke.getLValue());
+            }
+            else {
+                toVar = recVar;
+            }
+            if (fromVar == null || toVar == null) {
+                continue;
+            }
+            Set<Obj> taintSourceObjs = getTaintObjsInPointsToSet(fromVar);
+            for (Obj taintSourceObj : taintSourceObjs) {
+                if (manager.isTaint(taintSourceObj)) {
+                    Invoke sourceCall = manager.getSourceCall(taintSourceObj);
+                    Obj taintObj = manager.makeTaint(sourceCall, transfer.type());
+                    solver.addToWorkList(toVar, taintObj);
+                }
+            }
+        }
+    }
     private Set<TaintFlow> collectTaintFlows() {
         Set<TaintFlow> taintFlows = new TreeSet<>();
         PointerAnalysisResult result = solver.getResult();
@@ -131,8 +191,8 @@ public class TaintAnalysiss {
                         for (CSObj csObj : pts) {
                             Obj obj = csObj.getObject();
                             if (manager.isTaint(obj)) {
-                                    Invoke sourceCall = manager.getSourceCall(obj);
-                                    taintFlows.add(new TaintFlow(sourceCall, invoke, i));
+                                Invoke sourceCall = manager.getSourceCall(obj);
+                                taintFlows.add(new TaintFlow(sourceCall, invoke, i));
                             }
                         }
                     }
@@ -140,6 +200,9 @@ public class TaintAnalysiss {
             }
         }
         return taintFlows;
+    }
+    public boolean isTaint(CSObj csObj) {
+        return manager.isTaint(csObj.getObject());
     }
 
 }
