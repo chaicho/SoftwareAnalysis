@@ -185,9 +185,9 @@ public class Solver {
                 Context newContext = contextSelector.selectContext(csManager.getCSCallSite(context, stmt), callee);
                 CSCallSite csStmt = csManager.getCSCallSite(newContext, stmt);
                 CSMethod csCalle = csManager.getCSMethod(newContext,callee);
-                if (callGraph.hasEdge(csMethod, csManager.getCSMethod(newContext, callee))) {
-                    return null;
-                }
+//                if (callGraph.hasEdge(csMethod, csManager.getCSMethod(newContext, callee))) {
+//                    return null;
+//                }
                 addReachable(csManager.getCSMethod(newContext, callee));
                 callGraph.addEdge(new Edge(CallKind.STATIC, csStmt, csCalle));
                 if (def != null) {
@@ -257,7 +257,7 @@ public class Solver {
     /**
      * Adds an edge "source -> target" to the PFG.
      */
-    private void addPFGEdge(Pointer source, Pointer target) {
+    public void addPFGEdge(Pointer source, Pointer target) {
         // TODO - finish me
         if (pointerFlowGraph.addEdge(source, target)) {
             if (!source.getPointsToSet().isEmpty()) {

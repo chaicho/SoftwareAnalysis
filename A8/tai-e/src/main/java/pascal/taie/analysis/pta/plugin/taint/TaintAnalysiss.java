@@ -162,6 +162,7 @@ public class TaintAnalysiss {
                 continue;
             }
             Set<Obj> taintSourceObjs = getTaintObjsInPointsToSet(fromVar);
+            solver.addPFGEdge(fromVar, toVar);
             for (Obj taintSourceObj : taintSourceObjs) {
                 if (manager.isTaint(taintSourceObj)) {
                     Invoke sourceCall = manager.getSourceCall(taintSourceObj);
