@@ -35,8 +35,10 @@ import pascal.taie.analysis.pta.cs.Solver;
 import pascal.taie.ir.exp.Var;
 import pascal.taie.ir.stmt.Invoke;
 import pascal.taie.language.classes.JMethod;
+import pascal.taie.language.type.Type;
 
 import java.lang.invoke.CallSite;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -65,10 +67,26 @@ public class TaintAnalysiss {
                 World.get().getClassHierarchy(),
                 World.get().getTypeSystem());
         logger.info(config);
-
-
     }
 
+    public Set<TaintTransfer> getTaintTransfers(CSMethod method) {
+        Set<TaintTransfer> taintTransfers = new HashSet<>();
+        for (TaintTransfer transfer : config.getTransfers()) {
+            if (transfer.method().equals(method.getMethod())) {
+                taintTransfers.add(transfer);
+            }
+        }
+        return taintTransfers;
+    }
+    public Set<Type> getTaintTypes(CSMethod method) {
+        Set<Type> taintTypes = new HashSet<>();
+        for (Source source : config.getSources()) {
+            if (source.method().equals(method.getMethod())) {
+                taintTypes.add(source.type());
+            }
+        }
+        return taintTypes;
+    }
     // TODO - finish me
 
     public void onFinish() {
@@ -124,5 +142,4 @@ public class TaintAnalysiss {
         return taintFlows;
     }
 
-    public boolean
 }
